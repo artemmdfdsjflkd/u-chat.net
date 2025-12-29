@@ -6,11 +6,32 @@
     <title>UChat - Мессенджер</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="styles.css">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body class="min-h-screen gradient-bg">
     
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="fixed inset-0 z-50 flex items-center justify-center gradient-bg">
+        <div class="text-center">
+            <div class="inline-flex items-center justify-center w-24 h-24 rounded-2xl avatar-gradient mb-6 shadow-xl animate-pulse">
+                <svg class="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-white mb-2">UChat</h1>
+            <p class="text-white/70">Подключение к серверу...</p>
+            <div class="mt-4 flex justify-center gap-1">
+                <div class="w-2 h-2 bg-white rounded-full animate-bounce" style="animation-delay: 0ms;"></div>
+                <div class="w-2 h-2 bg-white rounded-full animate-bounce" style="animation-delay: 150ms;"></div>
+                <div class="w-2 h-2 bg-white rounded-full animate-bounce" style="animation-delay: 300ms;"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Auth Screen -->
-    <div id="authScreen" class="min-h-screen flex items-center justify-center p-4">
+    <div id="authScreen" class="hidden min-h-screen flex items-center justify-center p-4">
         <div class="glass-effect rounded-3xl shadow-2xl w-full max-w-md p-8 slide-up">
             <!-- Logo -->
             <div class="text-center mb-8">
@@ -96,7 +117,10 @@
                 </div>
                 <div>
                     <p id="displayName" class="font-semibold text-gray-800">Пользователь</p>
-                    <p id="displayUsername" class="text-sm text-gray-500">@username</p>
+                    <div class="flex items-center gap-2">
+                        <p id="displayUsername" class="text-sm text-gray-500">@username</p>
+                        <span id="onlineStatus" class="w-2 h-2 bg-green-500 rounded-full"></span>
+                    </div>
                 </div>
             </div>
             
@@ -161,6 +185,7 @@
                     <h2 class="text-xl font-semibold text-gray-600 mb-2">Добро пожаловать в UChat!</h2>
                     <p class="text-center max-w-md">Выберите чат из списка слева или найдите пользователя по имени, чтобы начать общение</p>
                 </div>
+
                 <!-- Active Chat -->
                 <div id="activeChat" class="hidden flex-1 flex flex-col">
                     <!-- Chat Header -->
@@ -168,7 +193,10 @@
                         <div id="chatAvatarContainer"></div>
                         <div class="flex-1">
                             <p id="chatName" class="font-semibold text-gray-800">Имя</p>
-                            <p id="chatUsername" class="text-sm text-gray-500">@username</p>
+                            <div class="flex items-center gap-2">
+                                <p id="chatUsername" class="text-sm text-gray-500">@username</p>
+                                <span id="chatUserStatus" class="text-xs text-green-500">онлайн</span>
+                            </div>
                         </div>
                     </div>
                     
@@ -177,11 +205,17 @@
                         <!-- Messages will be inserted here -->
                     </div>
                     
+                    <!-- Typing Indicator -->
+                    <div id="typingIndicator" class="hidden px-6 py-2">
+                        <span class="text-sm text-gray-500 italic">печатает...</span>
+                    </div>
+                    
                     <!-- Message Input -->
                     <div class="bg-white/80 backdrop-blur border-t border-amber-100 p-4">
                         <form id="messageForm" class="flex items-center gap-3">
                             <input type="text" id="messageInput" placeholder="Напишите сообщение..."
-                                class="flex-1 px-4 py-3 rounded-xl bg-gray-100 focus:bg-white border-2 border-transparent focus:border-amber-400 outline-none transition-all">
+                                class="flex-1 px-4 py-3 rounded-xl bg-gray-100 focus:bg-white border-2 border-transparent focus:border-amber-400 outline-none transition-all"
+                                oninput="handleTyping()">
                             <button type="submit" class="p-3 btn-primary rounded-xl text-white shadow-lg">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
@@ -271,76 +305,115 @@
             </button>
         </div>
     </div>
+
     <script>
-        // Database Keys
-        const USERS_KEY = 'uchat_users';
-        const CURRENT_USER_KEY = 'uchat_current_user';
-        const MESSAGES_KEY = 'uchat_messages';
-        const CHATS_KEY = 'uchat_chats';
-        const SETTINGS_KEY = 'uchat_settings';
+        // =============================================
+        // FIREBASE CONFIGURATION
+        // =============================================
+        // ВАЖНО: Замените эти данные на свои из Firebase Console!
+        // 1. Идите на https://console.firebase.google.com/
+        // 2. Создайте новый проект
+        // 3. Добавьте веб-приложение
+        // 4. Скопируйте firebaseConfig
+        // 5. В Realtime Database установите правила:
+        //    {
+        //      "rules": {
+        //        ".read": true,
+        //        ".write": true
+        //      }
+        //    }
         
-        // Current state
+        const firebaseConfig = {
+			apiKey: "AIzaSyD1-dXC1SsU8F93xis-J6fNe0uTwLFHlLg",
+			authDomain: "u-chat-b425d.firebaseapp.com",
+			projectId: "u-chat-b425d",
+			storageBucket: "u-chat-b425d.firebasestorage.app",
+			messagingSenderId: "768756645064",
+			appId: "1:768756645064:web:a9f74896b582686483f9fd",
+			measurementId: "G-7RLE5MGH5E"
+		};
+
+        // Initialize Firebase
+        let db;
+        let isFirebaseConnected = false;
+        
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.database();
+            isFirebaseConnected = true;
+        } catch (error) {
+            console.error("Firebase init error:", error);
+        }
+
+        // =============================================
+        // STATE
+        // =============================================
         let currentUser = null;
         let currentChatUser = null;
-        let refreshInterval = null;
         let selectedAvatar = 'gradient';
         let isDarkTheme = false;
         let customAvatarData = null;
-        // Initialize databases
-        function initDB() {
-            if (!localStorage.getItem(USERS_KEY)) {
-                localStorage.setItem(USERS_KEY, JSON.stringify([]));
-            }
-            if (!localStorage.getItem(MESSAGES_KEY)) {
-                localStorage.setItem(MESSAGES_KEY, JSON.stringify([]));
-            }
-            if (!localStorage.getItem(CHATS_KEY)) {
-                localStorage.setItem(CHATS_KEY, JSON.stringify({}));
-            }
+        let usersCache = {};
+        let typingTimeout = null;
+        let messageListeners = [];
+
+        // =============================================
+        // DATABASE FUNCTIONS
+        // =============================================
+        
+        // Reference helpers
+        const usersRef = () => db.ref('users');
+        const messagesRef = () => db.ref('messages');
+        const chatsRef = () => db.ref('chats');
+        const typingRef = () => db.ref('typing');
+        const onlineRef = () => db.ref('online');
+        
+        // Get all users
+        async function getUsers() {
+            const snapshot = await usersRef().once('value');
+            const users = snapshot.val() || {};
+            usersCache = users;
+            return Object.values(users);
         }
         
-        // Users functions
-        function getUsers() {
-            return JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-        }
-        
-        function saveUsers(users) {
-            localStorage.setItem(USERS_KEY, JSON.stringify(users));
-        }
-        
-        function findUser(username) {
-            const users = getUsers();
+        // Find user by username
+        async function findUser(username) {
+            const users = await getUsers();
             return users.find(u => u.username.toLowerCase() === username.toLowerCase());
         }
         
+        // Find user by ID
         function findUserById(id) {
-            const users = getUsers();
-            return users.find(u => u.id === id);
+            return usersCache[id] || null;
         }
         
-        function registerUser(name, username, password) {
-            const users = getUsers();
-            
-            if (findUser(username)) {
+        // Register new user
+        async function registerUser(name, username, password) {
+            const existing = await findUser(username);
+            if (existing) {
                 return { success: false, message: 'Пользователь с таким именем уже существует!' };
             }
             
+            const userId = Date.now().toString();
             const newUser = {
-                id: Date.now(),
+                id: userId,
                 name: name,
                 username: username,
                 password: password,
+                avatar: 'gradient',
+                customAvatar: null,
                 createdAt: new Date().toISOString()
             };
             
-            users.push(newUser);
-            saveUsers(users);
+            await usersRef().child(userId).set(newUser);
+            usersCache[userId] = newUser;
             
             return { success: true, message: 'Регистрация успешна! Теперь войдите в аккаунт.' };
         }
         
-        function loginUser(username, password) {
-            const user = findUser(username);
+        // Login user
+        async function loginUser(username, password) {
+            const user = await findUser(username);
             
             if (!user) {
                 return { success: false, message: 'Пользователь не найден!' };
@@ -350,269 +423,164 @@
                 return { success: false, message: 'Неверный пароль!' };
             }
             
-            localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+            localStorage.setItem('uchat_current_user', JSON.stringify(user));
+            
+            // Set online status
+            await setOnlineStatus(user.id, true);
+            
             return { success: true, user: user };
         }
         
+        // Set online status
+        async function setOnlineStatus(userId, isOnline) {
+            await onlineRef().child(userId).set({
+                online: isOnline,
+                lastSeen: firebase.database.ServerValue.TIMESTAMP
+            });
+            
+            // Remove on disconnect
+            if (isOnline) {
+                onlineRef().child(userId).onDisconnect().set({
+                    online: false,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP
+                });
+            }
+        }
+        
+        // Get current user
         function getCurrentUser() {
-            const userData = localStorage.getItem(CURRENT_USER_KEY);
+            const userData = localStorage.getItem('uchat_current_user');
             return userData ? JSON.parse(userData) : null;
         }
         
-        function logout() {
-            localStorage.removeItem(CURRENT_USER_KEY);
+        // Logout
+        async function logout() {
+            if (currentUser) {
+                await setOnlineStatus(currentUser.id, false);
+            }
+            
+            // Remove all listeners
+            messageListeners.forEach(unsub => unsub());
+            messageListeners = [];
+            
+            localStorage.removeItem('uchat_current_user');
             currentUser = null;
             currentChatUser = null;
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-            }
             showAuthScreen();
         }
         
-        // Messages functions
-        function getMessages() {
-            return JSON.parse(localStorage.getItem(MESSAGES_KEY) || '[]');
-        }
-        
-        function saveMessages(messages) {
-            localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
-        }
-        
-        function sendMessage(toUserId, text) {
-            const messages = getMessages();
+        // Send message
+        async function sendMessage(toUserId, text) {
+            const chatId = getChatId(currentUser.id, toUserId);
+            const messageId = Date.now().toString();
+            
             const newMessage = {
-                id: Date.now(),
+                id: messageId,
                 from: currentUser.id,
                 to: toUserId,
                 text: text,
-                timestamp: new Date().toISOString()
+                timestamp: firebase.database.ServerValue.TIMESTAMP
             };
-            messages.push(newMessage);
-            saveMessages(messages);
+            
+            await messagesRef().child(chatId).child(messageId).set(newMessage);
             
             // Update chats for both users
-            updateUserChats(currentUser.id, toUserId);
-            updateUserChats(toUserId, currentUser.id);
+            await updateUserChats(currentUser.id, toUserId);
+            await updateUserChats(toUserId, currentUser.id);
+            
+            // Clear typing indicator
+            await setTyping(toUserId, false);
             
             return newMessage;
         }
         
-        function getConversation(userId1, userId2) {
-            const messages = getMessages();
-            return messages.filter(m => 
-                (m.from === userId1 && m.to === userId2) || 
-                (m.from === userId2 && m.to === userId1)
-            ).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        // Get chat ID (sorted to be consistent)
+        function getChatId(userId1, userId2) {
+            return [userId1, userId2].sort().join('_');
         }
         
-        // Chats functions
-        function getUserChats() {
-            const allChats = JSON.parse(localStorage.getItem(CHATS_KEY) || '{}');
-            return allChats[currentUser.id] || [];
+        // Update user chats list
+        async function updateUserChats(userId, chatWithId) {
+            const chatData = {
+                oderId: chatWithId,
+                lastUpdate: firebase.database.ServerValue.TIMESTAMP
+            };
+            await chatsRef().child(userId).child(chatWithId).set(chatData);
         }
         
-        function updateUserChats(userId, chatWithId) {
-            const allChats = JSON.parse(localStorage.getItem(CHATS_KEY) || '{}');
-            if (!allChats[userId]) {
-                allChats[userId] = [];
-            }
-            if (!allChats[userId].includes(chatWithId)) {
-                allChats[userId].unshift(chatWithId);
-            } else {
-                // Move to top
-                allChats[userId] = allChats[userId].filter(id => id !== chatWithId);
-                allChats[userId].unshift(chatWithId);
-            }
-            localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
-        }
-        
-        function getLastMessage(userId1, userId2) {
-            const conversation = getConversation(userId1, userId2);
-            return conversation.length > 0 ? conversation[conversation.length - 1] : null;
-        }
-        
-        // Search users
-        function searchUsers(query) {
-            const searchResults = document.getElementById('searchResults');
+        // Subscribe to messages in a chat
+        function subscribeToMessages(userId1, userId2, callback) {
+            const chatId = getChatId(userId1, userId2);
+            const ref = messagesRef().child(chatId);
             
-            if (query.length < 1) {
-                searchResults.classList.add('hidden');
-                return;
-            }
-            
-            const users = getUsers();
-            const filtered = users.filter(u => 
-                u.id !== currentUser.id && 
-                u.username.toLowerCase().includes(query.toLowerCase())
-            );
-            
-            if (filtered.length === 0) {
-                searchResults.innerHTML = '<div class="p-4 text-gray-500 text-center">Пользователи не найдены</div>';
-            } else {
-                searchResults.innerHTML = filtered.map(user => `
-                    <div class="flex items-center gap-3 p-3 hover:bg-amber-50 cursor-pointer transition-colors" onclick="startChat(${user.id})">
-                        ${getUserAvatarHTML(user, 'w-10 h-10', 'text-lg')}
-                        <div>
-                            <p class="font-semibold text-gray-800">${escapeHtml(user.name)}</p>
-                            <p class="text-sm text-gray-500">@${escapeHtml(user.username)}</p>
-                        </div>
-                    </div>
-                `).join('');
-            }
-            
-            searchResults.classList.remove('hidden');
-        }
-        
-        // Start or open chat
-        function startChat(userId) {
-            const user = findUserById(userId);
-            if (!user) return;
-            
-            currentChatUser = user;
-            
-            // Hide search results and clear input
-            document.getElementById('searchResults').classList.add('hidden');
-            document.getElementById('userSearch').value = '';
-            
-            // Update chats list
-            updateUserChats(currentUser.id, userId);
-            renderChatsList();
-            
-            // Show chat
-            openChat(userId);
-        }
-        
-        function openChat(userId) {
-            const user = findUserById(userId);
-            if (!user) return;
-            
-            currentChatUser = user;
-            
-            // Update UI
-            document.getElementById('noChatSelected').classList.add('hidden');
-            document.getElementById('activeChat').classList.remove('hidden');
-            
-            // Update chat header avatar
-            const chatAvatarContainer = document.getElementById('chatAvatarContainer');
-            chatAvatarContainer.innerHTML = getUserAvatarHTML(user, 'w-10 h-10', 'text-lg');
-            
-            document.getElementById('chatName').textContent = user.name;
-            document.getElementById('chatUsername').textContent = '@' + user.username;
-            
-            // Mark chat as active in sidebar
-            document.querySelectorAll('.chat-item').forEach(item => {
-                item.classList.remove('active');
-                if (parseInt(item.dataset.userId) === userId) {
-                    item.classList.add('active');
-                }
+            const listener = ref.on('value', snapshot => {
+                const messages = snapshot.val() || {};
+                const messageList = Object.values(messages).sort((a, b) => a.timestamp - b.timestamp);
+                callback(messageList);
             });
             
-            // Load messages
-            renderMessages();
+            return () => ref.off('value', listener);
         }
         
-        function renderMessages() {
-            if (!currentChatUser) return;
+        // Subscribe to user chats
+        function subscribeToChats(userId, callback) {
+            const ref = chatsRef().child(userId);
             
-            const messagesArea = document.getElementById('messagesArea');
-            const conversation = getConversation(currentUser.id, currentChatUser.id);
+            const listener = ref.on('value', snapshot => {
+                const chats = snapshot.val() || {};
+                callback(Object.keys(chats));
+            });
             
-            if (conversation.length === 0) {
-                messagesArea.innerHTML = `
-                    <div class="flex flex-col items-center justify-center h-full text-gray-400">
-                        <p>Начните общение с ${escapeHtml(currentChatUser.name)}</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            messagesArea.innerHTML = conversation.map(msg => {
-                const isSent = msg.from === currentUser.id;
-                const time = new Date(msg.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                
-                if (isSent) {
-                    return `
-                        <div class="flex gap-3 justify-end fade-in">
-                            <div class="message-sent rounded-2xl rounded-tr-sm px-4 py-3 max-w-md text-white shadow-lg">
-                                <p>${escapeHtml(msg.text)}</p>
-                                <span class="text-xs opacity-75 mt-1 block text-right">${time}</span>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    return `
-                        <div class="flex gap-3 fade-in">
-                            ${getUserAvatarHTML(currentChatUser, 'w-8 h-8', 'text-sm')}
-                            <div class="message-received rounded-2xl rounded-tl-sm px-4 py-3 max-w-md text-white shadow-lg">
-                                <p>${escapeHtml(msg.text)}</p>
-                                <span class="text-xs opacity-75 mt-1 block">${time}</span>
-                            </div>
-                        </div>
-                    `;
-                }
-            }).join('');
-            
-            messagesArea.scrollTop = messagesArea.scrollHeight;
+            return () => ref.off('value', listener);
         }
         
-        function renderChatsList() {
-            const chatsList = document.getElementById('chatsList');
-            const emptyChats = document.getElementById('emptyChats');
-            const userChatIds = getUserChats();
+        // Subscribe to typing indicator
+        function subscribeToTyping(fromUserId, toUserId, callback) {
+            const ref = typingRef().child(toUserId).child(fromUserId);
             
-            if (userChatIds.length === 0) {
-                emptyChats.classList.remove('hidden');
-                chatsList.innerHTML = '';
-                chatsList.appendChild(emptyChats);
-                return;
-            }
+            const listener = ref.on('value', snapshot => {
+                const data = snapshot.val();
+                callback(data?.typing || false);
+            });
             
-            emptyChats.classList.add('hidden');
-            
-            chatsList.innerHTML = userChatIds.map(userId => {
-                const user = findUserById(userId);
-                if (!user) return '';
-                
-                const lastMsg = getLastMessage(currentUser.id, userId);
-                const lastMsgText = lastMsg ? lastMsg.text : 'Нет сообщений';
-                const lastMsgTime = lastMsg ? formatTime(lastMsg.timestamp) : '';
-                const isActive = currentChatUser && currentChatUser.id === userId;
-                
-                return `
-                    <div class="sidebar-item chat-item ${isActive ? 'active' : ''} flex items-center gap-3 p-4 cursor-pointer" 
-                         data-user-id="${userId}" onclick="openChat(${userId})">
-                        ${getUserAvatarHTML(user, 'w-12 h-12', 'text-xl')}
-                        <div class="flex-1 min-w-0">
-                            <div class="flex justify-between items-center">
-                                <p class="font-semibold text-gray-800 truncate">${escapeHtml(user.name)}</p>
-                                <span class="text-xs text-gray-400">${lastMsgTime}</span>
-                            </div>
-                            <p class="text-sm text-gray-500 truncate">${escapeHtml(lastMsgText.substring(0, 30))}${lastMsgText.length > 30 ? '...' : ''}</p>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            return () => ref.off('value', listener);
         }
         
-        function formatTime(timestamp) {
-            const date = new Date(timestamp);
-            const now = new Date();
-            const diff = now - date;
-            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-            
-            if (days === 0) {
-                return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            } else if (days === 1) {
-                return 'вчера';
-            } else if (days < 7) {
-                const dayNames = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-                return dayNames[date.getDay()];
-            } else {
-                return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-            }
+        // Set typing indicator
+        async function setTyping(toUserId, isTyping) {
+            await typingRef().child(toUserId).child(currentUser.id).set({
+                typing: isTyping,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            });
         }
         
-        // UI Functions
+        // Subscribe to online status
+        function subscribeToOnlineStatus(userId, callback) {
+            const ref = onlineRef().child(userId);
+            
+            const listener = ref.on('value', snapshot => {
+                const data = snapshot.val();
+                callback(data?.online || false, data?.lastSeen);
+            });
+            
+            return () => ref.off('value', listener);
+        }
+        
+        // Subscribe to users for real-time updates
+        function subscribeToUsers(callback) {
+            const listener = usersRef().on('value', snapshot => {
+                const users = snapshot.val() || {};
+                usersCache = users;
+                callback(Object.values(users));
+            });
+            
+            return () => usersRef().off('value', listener);
+        }
+
+        // =============================================
+        // UI FUNCTIONS
+        // =============================================
+        
         function switchTab(tab) {
             const loginTab = document.getElementById('loginTab');
             const registerTab = document.getElementById('registerTab');
@@ -660,12 +628,14 @@
         }
         
         function showAuthScreen() {
+            document.getElementById('loadingScreen').classList.add('hidden');
             document.getElementById('authScreen').classList.remove('hidden');
             document.getElementById('chatScreen').classList.add('hidden');
         }
         
-        function showChatScreen(user) {
+        async function showChatScreen(user) {
             currentUser = user;
+            document.getElementById('loadingScreen').classList.add('hidden');
             document.getElementById('authScreen').classList.add('hidden');
             document.getElementById('chatScreen').classList.remove('hidden');
             
@@ -682,23 +652,259 @@
             document.getElementById('activeChat').classList.add('hidden');
             currentChatUser = null;
             
-            // Render chats list
-            renderChatsList();
+            // Subscribe to chats
+            const unsubChats = subscribeToChats(currentUser.id, async (chatUserIds) => {
+                await renderChatsList(chatUserIds);
+            });
+            messageListeners.push(unsubChats);
             
-            // Start auto-refresh for new messages
-            startAutoRefresh();
+            // Subscribe to users for real-time updates
+            const unsubUsers = subscribeToUsers(() => {
+                // Re-render if we have a current chat
+                if (currentChatUser) {
+                    currentChatUser = findUserById(currentChatUser.id);
+                }
+            });
+            messageListeners.push(unsubUsers);
         }
         
-        function startAutoRefresh() {
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
+        // Search users
+        async function searchUsers(query) {
+            const searchResults = document.getElementById('searchResults');
+            
+            if (query.length < 1) {
+                searchResults.classList.add('hidden');
+                return;
             }
-            refreshInterval = setInterval(() => {
-                renderChatsList();
-                if (currentChatUser) {
-                    renderMessages();
+            
+            const users = await getUsers();
+            const filtered = users.filter(u => 
+                u.id !== currentUser.id && 
+                u.username.toLowerCase().includes(query.toLowerCase())
+            );
+            
+            if (filtered.length === 0) {
+                searchResults.innerHTML = '<div class="p-4 text-gray-500 text-center">Пользователи не найдены</div>';
+            } else {
+                searchResults.innerHTML = filtered.map(user => `
+                    <div class="flex items-center gap-3 p-3 hover:bg-amber-50 cursor-pointer transition-colors" onclick="startChat('${user.id}')">
+                        ${getUserAvatarHTML(user, 'w-10 h-10', 'text-lg')}
+                        <div>
+                            <p class="font-semibold text-gray-800">${escapeHtml(user.name)}</p>
+                            <p class="text-sm text-gray-500">@${escapeHtml(user.username)}</p>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            searchResults.classList.remove('hidden');
+        }
+        
+        // Start or open chat
+        async function startChat(userId) {
+            const user = findUserById(userId);
+            if (!user) return;
+            
+            currentChatUser = user;
+            
+            // Hide search results and clear input
+            document.getElementById('searchResults').classList.add('hidden');
+            document.getElementById('userSearch').value = '';
+            
+            // Update chats list
+            await updateUserChats(currentUser.id, userId);
+            
+            // Show chat
+            openChat(userId);
+        }
+        
+        function openChat(userId) {
+            const user = findUserById(userId);
+            if (!user) return;
+            
+            // Remove previous message listeners for old chat
+            messageListeners.forEach(unsub => {
+                if (unsub.isChatListener) unsub();
+            });
+            
+            currentChatUser = user;
+            
+            // Update UI
+            document.getElementById('noChatSelected').classList.add('hidden');
+            document.getElementById('activeChat').classList.remove('hidden');
+            
+            // Update chat header avatar
+            const chatAvatarContainer = document.getElementById('chatAvatarContainer');
+            chatAvatarContainer.innerHTML = getUserAvatarHTML(user, 'w-10 h-10', 'text-lg');
+            
+            document.getElementById('chatName').textContent = user.name;
+            document.getElementById('chatUsername').textContent = '@' + user.username;
+            
+            // Mark chat as active in sidebar
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.userId === userId) {
+                    item.classList.add('active');
                 }
-            }, 2000);
+            });
+            
+            // Subscribe to messages
+            const unsubMessages = subscribeToMessages(currentUser.id, userId, (messages) => {
+                renderMessages(messages);
+            });
+            unsubMessages.isChatListener = true;
+            messageListeners.push(unsubMessages);
+            
+            // Subscribe to typing indicator
+            const unsubTyping = subscribeToTyping(currentUser.id, userId, (isTyping) => {
+                const indicator = document.getElementById('typingIndicator');
+                if (isTyping) {
+                    indicator.classList.remove('hidden');
+                } else {
+                    indicator.classList.add('hidden');
+                }
+            });
+            unsubTyping.isChatListener = true;
+            messageListeners.push(unsubTyping);
+            
+            // Subscribe to online status
+            const unsubOnline = subscribeToOnlineStatus(userId, (isOnline, lastSeen) => {
+                const statusEl = document.getElementById('chatUserStatus');
+                if (isOnline) {
+                    statusEl.textContent = 'онлайн';
+                    statusEl.className = 'text-xs text-green-500';
+                } else {
+                    statusEl.textContent = lastSeen ? formatLastSeen(lastSeen) : 'офлайн';
+                    statusEl.className = 'text-xs text-gray-400';
+                }
+            });
+            unsubOnline.isChatListener = true;
+            messageListeners.push(unsubOnline);
+        }
+        
+        function formatLastSeen(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+            const minutes = Math.floor(diff / 60000);
+            
+            if (minutes < 1) return 'был(а) только что';
+            if (minutes < 60) return `был(а) ${minutes} мин. назад`;
+            
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `был(а) ${hours} ч. назад`;
+            
+            return `был(а) ${date.toLocaleDateString('ru-RU')}`;
+        }
+        
+        function renderMessages(messages) {
+            if (!currentChatUser) return;
+            
+            const messagesArea = document.getElementById('messagesArea');
+            
+            if (messages.length === 0) {
+                messagesArea.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-gray-400">
+                        <p>Начните общение с ${escapeHtml(currentChatUser.name)}</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const wasScrolledToBottom = messagesArea.scrollHeight - messagesArea.clientHeight <= messagesArea.scrollTop + 100;
+            
+            messagesArea.innerHTML = messages.map(msg => {
+                const isSent = msg.from === currentUser.id;
+                const time = new Date(msg.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                
+                if (isSent) {
+                    return `
+                        <div class="flex gap-3 justify-end fade-in">
+                            <div class="message-sent rounded-2xl rounded-tr-sm px-4 py-3 max-w-md text-white shadow-lg">
+                                <p>${escapeHtml(msg.text)}</p>
+                                <span class="text-xs opacity-75 mt-1 block text-right">${time}</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="flex gap-3 fade-in">
+                            ${getUserAvatarHTML(currentChatUser, 'w-8 h-8', 'text-sm')}
+                            <div class="message-received rounded-2xl rounded-tl-sm px-4 py-3 max-w-md text-white shadow-lg">
+                                <p>${escapeHtml(msg.text)}</p>
+                                <span class="text-xs opacity-75 mt-1 block">${time}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+            
+            if (wasScrolledToBottom) {
+                messagesArea.scrollTop = messagesArea.scrollHeight;
+            }
+        }
+        
+        async function renderChatsList(chatUserIds) {
+            const chatsList = document.getElementById('chatsList');
+            const emptyChats = document.getElementById('emptyChats');
+            
+            if (!chatUserIds || chatUserIds.length === 0) {
+                chatsList.innerHTML = '';
+                chatsList.appendChild(emptyChats);
+                emptyChats.classList.remove('hidden');
+                return;
+            }
+            
+            emptyChats.classList.add('hidden');
+            
+            // Get last messages for all chats
+            const chatsHTML = await Promise.all(chatUserIds.map(async (userId) => {
+                const user = findUserById(userId);
+                if (!user) return '';
+                
+                const chatId = getChatId(currentUser.id, userId);
+                const snapshot = await messagesRef().child(chatId).limitToLast(1).once('value');
+                const messages = snapshot.val() || {};
+                const lastMsg = Object.values(messages)[0];
+                
+                const lastMsgText = lastMsg ? lastMsg.text : 'Нет сообщений';
+                const lastMsgTime = lastMsg ? formatTime(lastMsg.timestamp) : '';
+                const isActive = currentChatUser && currentChatUser.id === userId;
+                
+                return `
+                    <div class="sidebar-item chat-item ${isActive ? 'active' : ''} flex items-center gap-3 p-4 cursor-pointer" 
+                         data-user-id="${userId}" onclick="openChat('${userId}')">
+                        ${getUserAvatarHTML(user, 'w-12 h-12', 'text-xl')}
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-center">
+                                <p class="font-semibold text-gray-800 truncate">${escapeHtml(user.name)}</p>
+                                <span class="text-xs text-gray-400">${lastMsgTime}</span>
+                            </div>
+                            <p class="text-sm text-gray-500 truncate">${escapeHtml(lastMsgText.substring(0, 30))}${lastMsgText.length > 30 ? '...' : ''}</p>
+                        </div>
+                    </div>
+                `;
+            }));
+            
+            chatsList.innerHTML = chatsHTML.join('');
+        }
+        
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            
+            if (days === 0) {
+                return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            } else if (days === 1) {
+                return 'вчера';
+            } else if (days < 7) {
+                const dayNames = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+                return dayNames[date.getDay()];
+            } else {
+                return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            }
         }
         
         function escapeHtml(text) {
@@ -707,13 +913,27 @@
             return div.innerHTML;
         }
         
-        // Settings Functions
+        // Handle typing
+        function handleTyping() {
+            if (!currentChatUser) return;
+            
+            setTyping(currentChatUser.id, true);
+            
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                setTyping(currentChatUser.id, false);
+            }, 2000);
+        }
+        
+        // =============================================
+        // SETTINGS FUNCTIONS
+        // =============================================
+        
         function openSettings() {
             document.getElementById('settingsModal').classList.remove('hidden');
             document.getElementById('settingsUserName').textContent = currentUser.name;
             document.getElementById('settingsUserUsername').textContent = '@' + currentUser.username;
             
-            // Load current settings
             loadUserSettings();
             updateAvatarPreviews();
             updateSelectedAvatar();
@@ -744,7 +964,6 @@
                 }
             });
             
-            // Update custom avatar button selection
             const customBtn = document.getElementById('customAvatarBtn');
             if (selectedAvatar === 'custom') {
                 customBtn.classList.add('selected');
@@ -756,6 +975,12 @@
         function uploadAvatar(event) {
             const file = event.target.files[0];
             if (file) {
+                // Limit file size to 50KB for localStorage
+                if (file.size > 50000) {
+                    alert('Файл слишком большой. Максимум 50KB');
+                    return;
+                }
+                
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     customAvatarData = e.target.result;
@@ -800,59 +1025,46 @@
             }
         }
         
-        function saveSettings() {
-            const settings = {
-                oderId: currentUser.id,
+        async function saveSettings() {
+            // Update user in database
+            const updates = {
                 avatar: selectedAvatar,
-                customAvatar: customAvatarData,
-                darkTheme: isDarkTheme
+                customAvatar: customAvatarData
             };
             
-            // Save settings for this user
-            let allSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-            allSettings[currentUser.id] = settings;
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(allSettings));
+            await usersRef().child(currentUser.id).update(updates);
             
-            // Update user avatar in users list
-            const users = getUsers();
-            const userIndex = users.findIndex(u => u.id === currentUser.id);
-            if (userIndex !== -1) {
-                users[userIndex].avatar = selectedAvatar;
-                users[userIndex].customAvatar = customAvatarData;
-                saveUsers(users);
-            }
-            
-            // Update current user
+            // Update local current user
             currentUser.avatar = selectedAvatar;
             currentUser.customAvatar = customAvatarData;
-            localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser));
+            localStorage.setItem('uchat_current_user', JSON.stringify(currentUser));
+            
+            // Save theme to localStorage
+            localStorage.setItem('uchat_theme_' + currentUser.id, JSON.stringify({ darkTheme: isDarkTheme }));
             
             // Apply changes
             updateUserAvatarDisplay();
-            renderChatsList();
-            if (currentChatUser) {
-                renderMessages();
-            }
             
             closeSettings();
         }
         
         function loadUserSettings() {
-            const allSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-            const userSettings = allSettings[currentUser.id];
+            // Load avatar from user data
+            selectedAvatar = currentUser.avatar || 'gradient';
+            customAvatarData = currentUser.customAvatar || null;
             
-            if (userSettings) {
-                selectedAvatar = userSettings.avatar || 'gradient';
-                customAvatarData = userSettings.customAvatar || null;
-                isDarkTheme = userSettings.darkTheme || false;
-                
-                if (customAvatarData && selectedAvatar === 'custom') {
-                    const preview = document.getElementById('customAvatarPreview');
+            // Load theme from localStorage
+            const themeData = localStorage.getItem('uchat_theme_' + currentUser.id);
+            if (themeData) {
+                const theme = JSON.parse(themeData);
+                isDarkTheme = theme.darkTheme || false;
+            }
+            
+            if (customAvatarData && selectedAvatar === 'custom') {
+                const preview = document.getElementById('customAvatarPreview');
+                if (preview) {
                     preview.innerHTML = `<img src="${customAvatarData}" class="w-full h-full object-cover rounded-full">`;
                 }
-            } else {
-                selectedAvatar = currentUser.avatar || 'gradient';
-                customAvatarData = currentUser.customAvatar || null;
             }
             
             applyTheme();
@@ -876,7 +1088,6 @@
             const avatarEl = document.getElementById('userAvatar');
             const initial = currentUser.name.charAt(0).toUpperCase();
             
-            // Remove all avatar classes
             avatarEl.className = 'w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg cursor-pointer hover:scale-105 transition-transform';
             
             if (selectedAvatar === 'custom' && customAvatarData) {
@@ -902,13 +1113,16 @@
             }
         }
         
-        // Event Listeners
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
+        // =============================================
+        // EVENT LISTENERS
+        // =============================================
+        
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const username = document.getElementById('loginUsername').value.trim();
             const password = document.getElementById('loginPassword').value;
             
-            const result = loginUser(username, password);
+            const result = await loginUser(username, password);
             
             if (result.success) {
                 showChatScreen(result.user);
@@ -917,7 +1131,7 @@
             }
         });
         
-        document.getElementById('registerForm').addEventListener('submit', function(e) {
+        document.getElementById('registerForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const name = document.getElementById('registerName').value.trim();
             const username = document.getElementById('registerUsername').value.trim();
@@ -928,7 +1142,7 @@
                 return;
             }
             
-            const result = registerUser(name, username, password);
+            const result = await registerUser(name, username, password);
             
             if (result.success) {
                 showSuccess(result.message);
@@ -939,21 +1153,17 @@
             }
         });
         
-        // Message sending
-        document.getElementById('messageForm').addEventListener('submit', function(e) {
+        document.getElementById('messageForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
             
             if (message && currentChatUser) {
-                sendMessage(currentChatUser.id, message);
                 input.value = '';
-                renderMessages();
-                renderChatsList();
+                await sendMessage(currentChatUser.id, message);
             }
         });
         
-        // Close search results when clicking outside
         document.addEventListener('click', function(e) {
             const searchResults = document.getElementById('searchResults');
             const userSearch = document.getElementById('userSearch');
@@ -962,14 +1172,47 @@
             }
         });
         
-        // Initialize
-        initDB();
+        // =============================================
+        // INITIALIZATION
+        // =============================================
         
-        // Check if user is already logged in
-        const savedUser = getCurrentUser();
-        if (savedUser) {
-            showChatScreen(savedUser);
+        async function init() {
+            if (!isFirebaseConnected) {
+                document.getElementById('loadingScreen').innerHTML = `
+                    <div class="text-center text-white p-8">
+                        <h1 class="text-2xl font-bold mb-4">⚠️ Ошибка подключения</h1>
+                        <p class="mb-4">Не удалось подключиться к Firebase.</p>
+                        <p class="text-sm opacity-75">Проверьте конфигурацию в коде.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Test database connection
+            try {
+                await db.ref('.info/connected').once('value');
+            } catch (error) {
+                console.error('Database connection error:', error);
+            }
+            
+            // Check if user is already logged in
+            const savedUser = getCurrentUser();
+            if (savedUser) {
+                // Refresh user data from database
+                const freshUser = await findUser(savedUser.username);
+                if (freshUser && freshUser.password === savedUser.password) {
+                    await setOnlineStatus(freshUser.id, true);
+                    showChatScreen(freshUser);
+                } else {
+                    showAuthScreen();
+                }
+            } else {
+                showAuthScreen();
+            }
         }
+        
+        // Start app
+        init();
     </script>
 </body>
 </html>
